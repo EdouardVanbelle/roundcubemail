@@ -25,7 +25,7 @@ use GuzzleHttp\MessageFormatter;
 /**
  * Roundcube OAuth2 utilities
  */
-class rcmail_oauth
+class oauth extends rcube_plugin
 {
     public const TOKEN_REFRESHED       = 1;
     public const TOKEN_STILL_VALID     = 0;
@@ -89,24 +89,6 @@ class rcmail_oauth
         // plain method is not implemented: @see RFC7636 4.2: "If the client is capable of using "S256", it MUST use "S256"
     ];
 
-    /** @var rcmail_oauth */
-    protected static $instance;
-
-    /**
-     * Singleton factory
-     *
-     * @return rcmail_oauth The one and only instance
-     */
-    public static function get_instance($options = [])
-    {
-        if (!self::$instance) {
-            self::$instance = new self($options);
-            self::$instance->init();
-        }
-
-        return self::$instance;
-    }
-
     /**
      * Helper to log oauth
      */
@@ -128,82 +110,6 @@ class rcmail_oauth
         if ($this->options['debug']) {
             $this->logger('DEBUG', sprintf(...$args));
         }
-    }
-
-    /**
-     * Object constructor
-     *
-     * @param array $options Config options:
-     */
-    public function __construct($options = [])
-    {
-        $this->rcmail = rcmail::get_instance();
-
-        // use `oauth_cache` to define engine & `oauth_cache_ttl` to define ttl (default 1d))
-        $this->cache = $this->rcmail->get_cache_shared('oauth');
-
-        $this->options = (array) $options + [
-            'provider'        => $this->rcmail->config->get('oauth_provider'),
-            'provider_name'   => $this->rcmail->config->get('oauth_provider_name', 'OAuth'),
-            'auth_uri'        => $this->rcmail->config->get('oauth_auth_uri'),
-            'config_uri'      => $this->rcmail->config->get('oauth_config_uri'),
-            'issuer'          => $this->rcmail->config->get('oauth_issuer'),
-            'logout_uri'      => $this->rcmail->config->get('oauth_logout_uri'),
-            'token_uri'       => $this->rcmail->config->get('oauth_token_uri'),
-            'jwks_uri'        => $this->rcmail->config->get('oauth_jwks_uri'),
-            'client_id'       => $this->rcmail->config->get('oauth_client_id'),
-            'client_secret'   => $this->rcmail->config->get('oauth_client_secret'),
-            'identity_uri'    => $this->rcmail->config->get('oauth_identity_uri'),
-            'identity_fields' => $this->rcmail->config->get('oauth_identity_fields', ['email']),
-            'user_create_map' => $this->rcmail->config->get('oauth_user_create_map', [
-                //rc key => OIDC Claim @see: https://openid.net/specs/openid-connect-core-1_0.html#StandardClaims )
-                'user_name' => ['name'],
-                'user_email' => ['email'],
-                'language' => ['locale'],
-            ]),
-
-            'scope'           => $this->rcmail->config->get('oauth_scope', ''),
-            'timeout'         => $this->rcmail->config->get('oauth_timeout', 10),
-            'verify_peer'     => $this->rcmail->config->get('oauth_verify_peer', true),
-            'auth_parameters' => $this->rcmail->config->get('oauth_auth_parameters', []),
-            'login_redirect'  => $this->rcmail->config->get('oauth_login_redirect', false),
-            'pkce'            => $this->rcmail->config->get('oauth_pkce', 'S256'),
-            'debug'           => $this->rcmail->config->get('oauth_debug', false),
-        ];
-
-        // http_options will be used in test phase to add a mock
-        if (!isset($options['http_options'])) {
-            $options['http_options'] = [];
-        }
-
-        // sanity check on PKCE value
-        if ($this->options['pkce'] && !array_key_exists($this->options['pkce'], self::$pkce_mapper)) {
-            // will stops on error
-            rcube::raise_error([
-                'message' => "PKCE method not supported (oauth_pkce='{$this->options['pkce']}')",
-                'file'    => __FILE__,
-                'line'    => __LINE__,
-            ], true, true);
-        }
-
-        // sanity check that configuration user_create_map contains only allowed keys
-        foreach ($this->options['user_create_map'] as $key => $ignored) {
-            if (!in_array($key, self::$user_create_allowed_keys)) {
-                // will stops on error
-                rcube::raise_error([
-                    'message' => "use of key `{$key}` in `oauth_user_create_map` is not allowed",
-                    'file'    => __FILE__,
-                    'line'    => __LINE__,
-                ], true, true);
-            }
-        }
-
-        // prepare a http client with the correct options
-        $this->http_client = $this->rcmail->get_http_client((array) $options['http_options'] + [
-            'timeout' => $this->options['timeout'],
-            'verify'  => $this->options['verify_peer'],
-        ]);
-
     }
 
     /**
@@ -312,8 +218,76 @@ class rcmail_oauth
     /**
      * Initialize this instance
      */
-    public function init(): void
+    public function init(array $options): void
     {
+        $this->rcmail = rcmail::get_instance();
+
+        // use `oauth_cache` to define engine & `oauth_cache_ttl` to define ttl (default 1d))
+        $this->cache = $this->rcmail->get_cache_shared('oauth');
+
+        $this->options = (array) $options + [
+            'provider'        => $this->rcmail->config->get('oauth_provider'),
+            'provider_name'   => $this->rcmail->config->get('oauth_provider_name', 'OAuth'),
+            'auth_uri'        => $this->rcmail->config->get('oauth_auth_uri'),
+            'config_uri'      => $this->rcmail->config->get('oauth_config_uri'),
+            'issuer'          => $this->rcmail->config->get('oauth_issuer'),
+            'logout_uri'      => $this->rcmail->config->get('oauth_logout_uri'),
+            'token_uri'       => $this->rcmail->config->get('oauth_token_uri'),
+            'jwks_uri'        => $this->rcmail->config->get('oauth_jwks_uri'),
+            'client_id'       => $this->rcmail->config->get('oauth_client_id'),
+            'client_secret'   => $this->rcmail->config->get('oauth_client_secret'),
+            'identity_uri'    => $this->rcmail->config->get('oauth_identity_uri'),
+            'identity_fields' => $this->rcmail->config->get('oauth_identity_fields', ['email']),
+            'user_create_map' => $this->rcmail->config->get('oauth_user_create_map', [
+                //rc key => OIDC Claim @see: https://openid.net/specs/openid-connect-core-1_0.html#StandardClaims )
+                'user_name' => ['name'],
+                'user_email' => ['email'],
+                'language' => ['locale'],
+            ]),
+
+            'scope'           => $this->rcmail->config->get('oauth_scope', ''),
+            'timeout'         => $this->rcmail->config->get('oauth_timeout', 10),
+            'verify_peer'     => $this->rcmail->config->get('oauth_verify_peer', true),
+            'auth_parameters' => $this->rcmail->config->get('oauth_auth_parameters', []),
+            'login_redirect'  => $this->rcmail->config->get('oauth_login_redirect', false),
+            'pkce'            => $this->rcmail->config->get('oauth_pkce', 'S256'),
+            'debug'           => $this->rcmail->config->get('oauth_debug', false),
+        ];
+
+        // http_options will be used in test phase to add a mock
+        if (!isset($options['http_options'])) {
+            $options['http_options'] = [];
+        }
+
+        // sanity check on PKCE value
+        if ($this->options['pkce'] && !array_key_exists($this->options['pkce'], self::$pkce_mapper)) {
+            // will stops on error
+            rcube::raise_error([
+                'message' => "PKCE method not supported (oauth_pkce='{$this->options['pkce']}')",
+                'file'    => __FILE__,
+                'line'    => __LINE__,
+            ], true, true);
+        }
+
+        // sanity check that configuration user_create_map contains only allowed keys
+        foreach ($this->options['user_create_map'] as $key => $ignored) {
+            if (!in_array($key, self::$user_create_allowed_keys)) {
+                // will stops on error
+                rcube::raise_error([
+                    'message' => "use of key `{$key}` in `oauth_user_create_map` is not allowed",
+                    'file'    => __FILE__,
+                    'line'    => __LINE__,
+                ], true, true);
+            }
+        }
+
+        // prepare a http client with the correct options
+        $this->http_client = $this->rcmail->get_http_client((array) $options['http_options'] + [
+            'timeout' => $this->options['timeout'],
+            'verify'  => $this->options['verify_peer'],
+        ]);
+
+
         // important must be called before is_enabled()
         $this->discover();
 
@@ -584,7 +558,7 @@ class rcmail_oauth
      *
      * @see https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.3
      */
-    public function request_access_token($auth_code, $state = null)
+    protected function request_access_token($auth_code, $state = null)
     {
         $oauth_token_uri     = $this->options['token_uri'];
         $oauth_client_id     = $this->options['client_id'];
@@ -1221,16 +1195,14 @@ class rcmail_oauth
 
         if ($args['task'] == 'login' && $args['action'] == 'oauth') {
             // handle oauth login requests
-            $oauth_handler = new rcmail_action_login_oauth();
-            $handler_answer = $oauth_handler->run();
+            $handler_answer = $this->handle_login_oauth();
             if ($handler_answer && is_array($handler_answer)) {
                 // on success, handler will request next action = login
                 $args = $handler_answer + $args;
             }
         } elseif ($args['task'] == 'login' && $args['action'] == 'backchannel') {
             // handle oauth login requests
-            $oauth_handler = new rcmail_action_login_oauth_backchannel();
-            $oauth_handler->run();
+            $this->handle_backchannel();
         } elseif ($args['task'] == 'logout') {
             //handle only logout task
             $this->handle_logout();
@@ -1278,6 +1250,107 @@ class rcmail_oauth
 
         $this->logout_redirect_url = $this->options['logout_uri'] . '?' . http_build_query($params);
         $this->log_debug('creating logout call: %s', $this->logout_redirect_url);
+    }
+
+    // WIP
+    protected function handle_login_oauth($args = [])
+    {
+        $auth_code  = rcube_utils::get_input_string('code', rcube_utils::INPUT_GET);
+        $auth_error = rcube_utils::get_input_string('error', rcube_utils::INPUT_GET);
+        $auth_state = rcube_utils::get_input_string('state', rcube_utils::INPUT_GET);
+
+        // on oauth error
+        if (!empty($auth_error)) {
+            $error_message = rcube_utils::get_input_string('error_description', rcube_utils::INPUT_GET) ?: $auth_error;
+            $this->rcmail->output->show_message($error_message, 'warning');
+            return;
+        }
+
+        // auth code return from oauth login
+        if (!empty($auth_code)) {
+            $auth = $this->request_access_token($auth_code, $auth_state);
+            if (!$auth) {
+                $this->rcmail->output->show_message('oauthloginfailed', 'warning');
+                return;
+            }
+
+            // next action will be the login
+            $args['task'] = 'login';
+            $args['action'] = 'login';
+            return $args;
+        }
+
+        // login action: redirect to `oauth_auth_uri`
+        if ($this->rcmail->task === 'login') {
+            // this will always exit() the process
+            $this->login_redirect();
+        }
+    }
+
+    // WIP
+    protected function handle_backchannel($args = [])
+    {
+        // default message
+        $answer = ['error' => 'invalid_request', 'error_description' => 'Error, no action'];
+
+        //Beware we are in back-channel from OP (IDP)
+        $logout_token = rcube_utils::get_input_string('logout_token', rcube_utils::INPUT_POST);
+
+        if (!empty($logout_token)) {
+            try {
+                $event = $this->jwt_decode($logout_token);
+
+                /* return event example
+                {
+                    "typ":"Logout",                                      // event type
+                    "iat":1700263584,                                    // emition date
+                    "jti":"4a953d6e-dc6b-4cc1-8d29-cb54b2351d0a",        // token identifier
+                    "iss":"https://....",                                // issuer identifier
+                    "aud":"my client id",                                // audience = client id
+                    "sub":"82c8f487-df95-4960-972c-4e680c3c72f5",        // subject
+                    "sid":"28101815-0017-4ade-a550-e054bde07ded",        // session
+                    "events":{"http://schemas.openid.net/event/backchannel-logout":[]}
+                }
+                */
+
+                if ($event['typ'] !== 'Logout') {
+                    throw new RuntimeException('handle only Logout events');
+                }
+                if (!isset($event['sub'])) {
+                    throw new RuntimeException('event has no "sub"');
+                }
+
+                $this->log_debug('backchannel: logout event received, schedule a revocation for token\'s sub: %s', $event['sub']);
+                $this->schedule_token_revocation($event['sub']);
+
+                http_response_code(200); // 204 works also
+                header('Content-Type: application/json; charset=UTF-8');
+                header('Cache-Control: no-store');
+                echo '{}';
+                exit;
+            } catch (Exception $e) {
+                rcube::raise_error([
+                        'message' => $e->getMessage(),
+                        'file'    => __FILE__,
+                        'line'    => __LINE__,
+                    ], true, false
+                );
+                $answer['error_description'] = 'Error decoding JWT';
+            }
+        } else {
+            rcube::raise_error([
+                   'message' => sprintf('oidc backchannel called from %s without any parameter', rcube_utils::remote_addr()),
+                   'file'    => __FILE__,
+                   'line'    => __LINE__,
+               ], true, false
+            );
+        }
+
+        http_response_code(400);
+        header('Content-Type: application/json; charset=UTF-8');
+        header('Cache-Control: no-store');
+        echo json_encode($answer);
+        exit;
     }
 
     /**

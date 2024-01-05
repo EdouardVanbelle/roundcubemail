@@ -53,7 +53,6 @@ class rcmail extends rcube
     public $filename  = '';
     public $default_skin;
     public $login_error;
-    public $oauth;
 
     /** @var ?string Temporary user email (set on user creation only) */
     public $user_email;
@@ -150,9 +149,6 @@ class rcmail extends rcube
         } elseif (!empty($_SERVER['REMOTE_ADDR'])) {
             $this->load_gui(!empty($_REQUEST['_framed']));
         }
-
-        // load oauth manager
-        $this->oauth = rcmail_oauth::get_instance();
 
         // run init method on all the plugins
         $this->plugins->init($this, $this->task);
